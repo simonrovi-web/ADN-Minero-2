@@ -1,0 +1,6 @@
+{
+  "name": "ADN Minero",
+  "description": "Paneles de inteligencia minera en tiempo real, telemetría operativa en faena, noticias con voz y datos del sector minero de Chile.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
