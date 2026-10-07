@@ -8,6 +8,8 @@ Recreación 3D, totalmente procedural, de la ilustración de la casa embrujada s
 | `casa_embrujada.blend` | Escena ya generada (guardada con Blender 5.2) |
 | `render_casa_embrujada.png` | Render final en Cycles, 2000×1116 (mismo formato que la ilustración), 128 muestras + denoise |
 | `comparacion.jpg` | Ilustración original (izquierda) vs. render (derecha) |
+| `fondo_cielo.png` | Cielo extraído de la ilustración (sin casa, roca ni árboles), usado como fondo pintado |
+| `extraer_cielo.py` | Script (OpenCV) que genera `fondo_cielo.png` a partir de la ilustración |
 
 ## Cómo usarlo
 
@@ -18,6 +20,16 @@ Recreación 3D, totalmente procedural, de la ilustración de la casa embrujada s
 ```bash
 blender -b -P casa_embrujada.py -- --save escena.blend --render render.png --res 2000x1116 --samples 128
 ```
+
+### Fondo pintado y etalonaje
+
+Si `fondo_cielo.png` está junto al script, el cielo de la ilustración se usa como fondo de cámara: el
+render se hace con fondo transparente y se compone sobre ese cielo, y luego se igualan la media y el
+contraste de color de la casa/roca/árboles con los de la ilustración (`GRADE_*` al inicio del script).
+Con `--sky none` se usa el cielo procedural.
+
+Regenerar el fondo: `python extraer_cielo.py ilustracion.jpg fondo_cielo.png` (el polígono de la
+casa/roca está en coordenadas de la imagen original de 2000×1116).
 
 ## Qué contiene la escena (organizada en colecciones)
 

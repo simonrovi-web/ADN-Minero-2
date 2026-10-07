@@ -22,7 +22,11 @@ from mathutils import Vector, Matrix, Euler, noise
 
 SEED = 7
 HOUSE_YAW = -52.0
-DAMAGE = 0.07  # proporción de tablas sueltas o caídas  # la casa se ve en esquina, como en la ilustración
+DAMAGE = 0.07  # proporción de tablas sueltas o caídas
+# Etalonaje final (solo con fondo pintado): media y desviación RGB de la ilustración
+GRADE_MEAN = (0.165, 0.158, 0.1632)
+GRADE_STD = (0.1102, 0.114, 0.1088)
+GRADE_STRENGTH = 0.8  # la casa se ve en esquina, como en la ilustración
 random.seed(SEED)
 noise.seed_set(SEED)
 
@@ -245,7 +249,7 @@ def mat_tiles(name):
     vec = _mapping(nt, 'Object', (1, 1, 1))
     n1 = _noise(nt, vec, 2.5, 8, 0.6)
     n2 = _noise(nt, vec, 25.0, 6, 0.6)
-    col = _ramp(nt, n1.outputs['Fac'], [(0.3, (0.018, 0.008, 0.012)), (0.5, (0.048, 0.02, 0.028)), (0.72, (0.095, 0.045, 0.055))])
+    col = _ramp(nt, n1.outputs['Fac'], [(0.3, (0.016, 0.01, 0.013)), (0.5, (0.042, 0.027, 0.032)), (0.72, (0.085, 0.058, 0.064))])
     moss = _ramp(nt, n2.outputs['Fac'], [(0.55, (1, 1, 1)), (0.75, (0.55, 0.6, 0.5))])
     col = _mix_rgb(nt, 1.0, col, moss, 'MULTIPLY')
     nt.links.new(col, bsdf.inputs['Base Color'])
@@ -280,7 +284,7 @@ def mat_rock(name):
     mm.inputs['From Max'].default_value = 0.45
     nt.links.new(nm.outputs['Fac'], mm.inputs['Value'])
     nt.links.new(mm.outputs[0], mask.inputs[1])
-    dirt = _ramp(nt, fine.outputs['Fac'], [(0.35, (0.10, 0.095, 0.075)), (0.6, (0.24, 0.23, 0.17)), (0.8, (0.32, 0.31, 0.24))])
+    dirt = _ramp(nt, fine.outputs['Fac'], [(0.35, (0.05, 0.048, 0.04)), (0.6, (0.12, 0.115, 0.09)), (0.8, (0.17, 0.165, 0.13))])
     col = _mix_rgb(nt, mask.outputs[0], rock, dirt)
     col = _mix_rgb(nt, 1.0, col, (0.5, 0.45, 0.55), 'MULTIPLY')
     # oclusión/curvatura: grietas oscuras, aristas más claras
@@ -358,7 +362,7 @@ def mat_glass_dark(name):
 
 def build_materials():
     M = {}
-    M['wood'] = mat_wood('Madera_Tablones', (0.19, 0.11, 0.13), (0.055, 0.03, 0.04))
+    M['wood'] = mat_wood('Madera_Tablones', (0.15, 0.115, 0.125), (0.045, 0.033, 0.04))
     M['wood_dark'] = mat_wood('Madera_Oscura', (0.09, 0.065, 0.07), (0.03, 0.02, 0.025))
     M['wood_grey'] = mat_wood('Madera_Gris', (0.2, 0.185, 0.17), (0.06, 0.055, 0.055))
     M['plaster'] = mat_plaster('Revoque')
@@ -1028,7 +1032,7 @@ def build_terrain(M):
     # algunas rocas sueltas en la meseta y bordes
     for (x, y, s) in [(-5.6, -2.8, 0.9), (-4.2, -3.6, 0.6), (5.8, -3.6, 0.7), (6.5, -2.4, 0.5),
                       (-1.0, -3.2, 0.5), (2.9, -4.6, 0.8), (-6.5, 0.5, 0.7)]:
-        add_boulder(rocks, M, Vector((x, y, terrain_height(x, y) - s * 0.35)), s)
+        add_boulder(rocks, M, Vector((x, y, terrain_height(x, y) - s * 0.3)), s * 0.5)
     rob = rocks.build("Rocas_Acantilado", coll, smooth=True)
     # redondear las aristas (aspecto esculpido) y luego romper la superficie
     sub = rob.modifiers.new("Suavizar", 'SUBSURF')
@@ -1180,7 +1184,7 @@ def build_trees(M):
     coll = collection("Arboles")
     trees = [
         # (nombre, base xy, altura tronco, radio, inclinación, apertura, profundidad)
-        ("Arbol_Izq_Fondo", (-7.0, 0.4), 7.0, 0.6, (-0.3, 0.05), 0.85, 2),
+        ("Arbol_Izq_Fondo", (-6.6, 0.6), 6.5, 0.55, (-0.25, 0.05), 0.55, 2),
         ("Arbol_Primer_Plano", (-5.5, -8.0), 6.5, 0.5, (0.15, -0.1), 1.0, 2),
         ("Arbol_Derecha", (8.4, -1.4), 7.0, 0.8, (-0.35, -0.05), 1.5, 2),
         ("Arbol_Derecha_Lejos", (12.0, -1.0), 4.5, 0.4, (0.2, 0.0), 1.3, 2),
@@ -1208,7 +1212,7 @@ def build_trees(M):
 # Cielo, luces, cámara, render
 # ---------------------------------------------------------------------------
 
-def build_world():
+def build_world(sky_path=None):
     w = bpy.data.worlds.new("Cielo_Tormentoso")
     bpy.context.scene.world = w
     try:
@@ -1259,6 +1263,16 @@ def build_world():
     bg = nt.nodes.new('ShaderNodeBackground')
     bg.inputs['Strength'].default_value = 1.0
     nt.links.new(col, bg.inputs['Color'])
+    if sky_path:
+        # Fondo pintado ("sky plate") extraído de la ilustración, proyectado en la ventana de la cámara.
+        # El cielo procedural sigue arriba como alternativa (--sky none).
+        img = bpy.data.images.load(sky_path, check_existing=True)
+        img.pack()  # el .blend queda autocontenido
+        it = nt.nodes.new('ShaderNodeTexImage')
+        it.image = img
+        it.extension = 'EXTEND'
+        nt.links.new(tc.outputs['Window'], it.inputs['Vector'])
+        nt.links.new(it.outputs['Color'], bg.inputs['Color'])
     # para la iluminación, un tono uniforme suave (luz ambiental)
     amb = nt.nodes.new('ShaderNodeBackground')
     amb.inputs['Color'].default_value = (0.11, 0.12, 0.13, 1)
@@ -1328,7 +1342,8 @@ def main():
     out_png = None
     out_blend = None
     samples = 128
-    res = (1920, 1048)
+    res = (2000, 1116)
+    sky_path = default_sky_path()
     for i, a in enumerate(argv):
         if a == '--render':
             out_png = argv[i + 1]
@@ -1338,20 +1353,76 @@ def main():
             samples = int(argv[i + 1])
         elif a == '--res':
             res = tuple(int(v) for v in argv[i + 1].split('x'))
+        elif a == '--sky':
+            sky_path = None if argv[i + 1].lower() == 'none' else argv[i + 1]
     clear_scene()
     M = build_materials()
     build_terrain(M)
     build_house(M)
     build_trees(M)
-    build_world()
+    build_world(sky_path)
     build_lights()
     build_camera()
     setup_render(res, samples)
     if out_blend:
         bpy.ops.wm.save_as_mainfile(filepath=out_blend)
     if out_png:
-        bpy.context.scene.render.filepath = out_png
-        bpy.ops.render.render(write_still=True)
+        sc = bpy.context.scene
+        sc.render.filepath = out_png
+        if sky_path:
+            # se renderiza con fondo transparente y se compone sobre el cielo pintado
+            # para conservar sus colores exactos (sin pasar por la transformada de vista)
+            sc.render.film_transparent = True
+            sc.render.image_settings.color_mode = 'RGBA'
+            bpy.ops.render.render(write_still=True)
+            composite_over_sky(out_png, sky_path)
+        else:
+            bpy.ops.render.render(write_still=True)
+
+
+def default_sky_path():
+    import os
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+    except NameError:
+        here = os.path.dirname(bpy.data.filepath) if bpy.data.filepath else os.getcwd()
+    p = os.path.join(here, 'fondo_cielo.png')
+    return p if os.path.exists(p) else None
+
+
+def composite_over_sky(png_path, sky_path):
+    """Compone el render (RGBA, alfa directo) sobre el fondo de cielo, en espacio de pantalla."""
+    import numpy as np
+    fg = bpy.data.images.load(png_path, check_existing=False)
+    fg.colorspace_settings.name = 'Non-Color'
+    bg = bpy.data.images.load(sky_path, check_existing=False)
+    bg.colorspace_settings.name = 'Non-Color'
+    w, h = fg.size
+    if tuple(bg.size) != (w, h):
+        bg.scale(w, h)
+    a = np.empty(w * h * 4, np.float32)
+    b = np.empty(w * h * 4, np.float32)
+    fg.pixels.foreach_get(a)
+    bg.pixels.foreach_get(b)
+    a = a.reshape(-1, 4)
+    b = b.reshape(-1, 4)
+    alpha = a[:, 3:4]
+    # etalonaje: igualar media y contraste por canal a los de la ilustración
+    # (medidos sobre la casa, la roca y los árboles de la imagen original)
+    sel = a[:, 3] > 0.5
+    if sel.any() and GRADE_STRENGTH > 0:
+        rgb = a[:, :3]
+        mf, sf = rgb[sel].mean(0), rgb[sel].std(0) + 1e-5
+        graded = np.clip((rgb - mf) / sf * GRADE_STD + GRADE_MEAN, 0, 1)
+        a[:, :3] = rgb * (1 - GRADE_STRENGTH) + graded * GRADE_STRENGTH
+    out = np.ones_like(a)
+    out[:, :3] = a[:, :3] * alpha + b[:, :3] * (1 - alpha)
+    res = bpy.data.images.new("Composicion", w, h, alpha=False)
+    res.colorspace_settings.name = 'Non-Color'
+    res.pixels.foreach_set(out.ravel())
+    res.filepath_raw = png_path
+    res.file_format = 'PNG'
+    res.save()
 
 
 if __name__ == "__main__":
