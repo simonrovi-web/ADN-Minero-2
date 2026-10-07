@@ -316,13 +316,13 @@ def mat_rock(name):
     final = _mix_rgb(nt, 1.0, col, crack_col, 'MULTIPLY')
     nt.links.new(final, bsdf.inputs['Base Color'])
     disp = nt.nodes.new('ShaderNodeDisplacement')
-    disp.inputs['Scale'].default_value = 0.6
-    disp.inputs['Midlevel'].default_value = 0.0
+    disp.inputs['Scale'].default_value = 0.5
+    disp.inputs['Midlevel'].default_value = 0.5
     hh = nt.nodes.new('ShaderNodeMath')
     hh.operation = 'MULTIPLY_ADD'
     nt.links.new(crr.outputs[0], hh.inputs[0])
     hh.inputs[1].default_value = 0.8
-    nt.links.new(big.outputs['Fac'], hh.inputs[2])
+    hh.inputs[2].default_value = 0.0
     # solo en las paredes: la meseta (plana) queda lisa
     steep = nt.nodes.new('ShaderNodeMath')
     steep.operation = 'SUBTRACT'
@@ -930,10 +930,12 @@ def terrain_height(x, y):
     th = math.radians(-HOUSE_YAW)
     lx = x * math.cos(th) - y * math.sin(th)
     ly = x * math.sin(th) + y * math.cos(th)
-    local = smoothstep(4.3, 5.0, lx) * smoothstep(3.4, 2.6, ly) * smoothstep(-4.5, -3.0, ly)
+    local = smoothstep(4.4, 5.3, lx) * smoothstep(3.4, 2.6, ly) * smoothstep(-4.5, -3.0, ly)
     # repisa baja que sigue hacia la derecha (donde están los árboles de la derecha)
     right = smoothstep(2.5, 4.0, x)
-    step_mask = max(local, right)
+    # frente de la torre: el suelo baja en rampa de izquierda a derecha hasta la repisa
+    ramp = smoothstep(0.4, 4.6, lx) * smoothstep(-1.85, -3.0, ly)
+    step_mask = max(local, right, ramp)
     top -= 3.75 * step_mask
     # la meseta baja suavemente hacia el frente (se ve su superficie desde la cámara)
     top -= 0.45 * max(0.0, -y - 2.5) * (1 - step_mask)
@@ -947,7 +949,7 @@ def terrain_height(x, y):
     R = 7.2 + 1.6 * noise.noise(Vector((math.cos(ang) * 1.5, math.sin(ang) * 1.5, 3.3))) \
         + 4.5 * max(0.0, math.cos(ang - 0.0)) * 0.9 - 0.8 * max(0.0, -math.sin(ang)) \
         + 1.8 * max(0.0, -math.cos(ang)) \
-        + 4.0 * max(0.0, -math.sin(ang)) * max(0.0, -math.cos(ang) + 0.3)
+        + 2.5 * max(0.0, -math.sin(ang)) * max(0.0, -math.cos(ang) + 0.3)
     drop = smoothstep(R, R + 17.0, r)
     h = top - 36.0 * drop ** 0.8
     # terrazas / estratos irregulares en el acantilado
@@ -1026,6 +1028,12 @@ def build_terrain(M):
             continue
         # dejar despejada la repisa y el sendero de la derecha
         if x > 3.0 and -4.5 < y < 4.0 and h > -8.0:
+            continue
+        # ni delante de la torre (se debe ver su base de piedra y la puerta baja)
+        th = math.radians(-HOUSE_YAW)
+        lx = x * math.cos(th) - y * math.sin(th)
+        ly = x * math.sin(th) + y * math.cos(th)
+        if -0.5 < lx < 7.0 and -9.0 < ly < -1.5 and h > -12.0:
             continue
         add_boulder(rocks, M, Vector((x, y, h - s * 0.5)), s, tall=2.2)
         placed += 1
@@ -1107,7 +1115,7 @@ def build_tree(name, coll, M, base, height, radius, seed, lean=(0.0, 0.0), sprea
             jitter = Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), rnd.uniform(-0.5, 0.5))) * 0.07
             curl = Vector((-dd.y, dd.x, 0)) * twist * 0.12
             # las puntas tienden a curvarse hacia arriba
-            up = Z * (0.01 + 0.06 * t if level > 0 else 0.05)
+            up = Z * (0.015 + 0.09 * t if level > 0 else 0.05)
             dd = (dd + jitter + curl + bend * math.sin(t * math.pi * 2.0) + up).normalized()
             cur = cur + dd * seg
             rr = r * (1 - 0.93 * t ** 1.1)
@@ -1119,7 +1127,7 @@ def build_tree(name, coll, M, base, height, radius, seed, lean=(0.0, 0.0), sprea
                 # ramas repartidas alrededor del tronco, abiertas casi en horizontal
                 az = az0 + kid_i * (math.tau / max(1, nkids)) + rnd.uniform(-0.5, 0.5)
                 kid_i += 1
-                side = Vector((math.cos(az), math.sin(az) * 0.6, rnd.uniform(-0.05, 0.4))).normalized()
+                side = Vector((math.cos(az), math.sin(az) * 0.6, rnd.uniform(0.12, 0.6))).normalized()
                 nd = (dd * 0.3 + side * spread * 1.4).normalized()
                 children.append((cur.copy(), nd, length * rnd.uniform(0.7, 0.95) * (1 - t * 0.3),
                                  rr * rnd.uniform(0.72, 0.88), level + 1))
