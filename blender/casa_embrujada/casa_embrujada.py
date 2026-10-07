@@ -366,7 +366,7 @@ def build_materials():
     M['brick'] = mat_stone('Ladrillo_Expuesto', (0.19, 0.16, 0.17))
     M['tiles'] = mat_tiles('Tejas')
     M['rock'] = mat_rock('Roca_Penasco')
-    M['bark'] = mat_wood('Corteza', (0.075, 0.06, 0.07), (0.02, 0.016, 0.02), (5, 5, 0.5), bands='X')
+    M['bark'] = mat_wood('Corteza', (0.045, 0.036, 0.045), (0.012, 0.01, 0.014), (5, 5, 0.5), bands='X')
     M['glass'] = mat_glass_dark('Ventana_Oscura')
     M['interior'] = mat_simple('Interior_Negro', (0.006, 0.005, 0.006), 1.0)
     return M
@@ -817,7 +817,7 @@ def build_house(M):
     post_h = 2.75
     for (x, y) in [(px0 + 0.1, py0 + 0.1), (1.8, py0 + 0.1), (3.4, py0 + 0.1), (px1 - 0.1, py0 + 0.1),
                    (px1 - 0.1, 0.0), (px1 - 0.1, py1 - 0.1)]:
-        lean = (random.uniform(-0.04, 0.04), random.uniform(-0.05, 0.05), 0)
+        lean = (random.uniform(-0.07, 0.07), random.uniform(-0.09, 0.09), 0)
         mb.box((x, y, ez0 + post_h / 2), (0.12, 0.12, post_h), M['wood_dark'], rot=lean)
     # poste de apoyo largo bajo el porche (desde la roca)
     mb.box((px1 - 0.15, py0 + 0.15, ez0 - 1.6), (0.12, 0.12, 3.2), M['wood_dark'], rot=(0.0, 0.08, 0))
@@ -1129,7 +1129,7 @@ def build_tree(name, coll, M, base, height, radius, seed, lean=(0.0, 0.0), sprea
         sp.resolution_u = 3
         # puntas: 2-3 ramitas cortas y curvas
         if level == depth:
-            for _ in range(rnd.randint(1, 2)):
+            for _ in range(rnd.randint(0, 1)):
                 tw = Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), rnd.uniform(0.2, 1))).normalized()
                 children.append((cur.copy(), (dd + tw * 0.8).normalized(), length * 0.45, pts[-1][1] * 0.9, depth + 1))
         for c in children:
@@ -1220,7 +1220,7 @@ def build_world():
     out = nt.nodes.new('ShaderNodeOutputWorld')
     tc = nt.nodes.new('ShaderNodeTexCoord')
     mp = nt.nodes.new('ShaderNodeMapping')
-    mp.inputs['Scale'].default_value = (1.0, 1.0, 2.6)
+    mp.inputs['Scale'].default_value = (1.0, 1.0, 1.9)
     nt.links.new(tc.outputs['Generated'], mp.inputs['Vector'])
     # degradado lateral: morado a la izquierda, verde a la derecha (según la cámara)
     dot = nt.nodes.new('ShaderNodeVectorMath')
@@ -1237,11 +1237,22 @@ def build_world():
     sr.inputs['From Min'].default_value = -0.1
     sr.inputs['From Max'].default_value = 1.0
     nt.links.new(side.outputs[0], sr.inputs['Value'])
-    hue = _ramp(nt, sr.outputs[0], [(0.0, (0.12, 0.10, 0.135)), (0.25, (0.13, 0.125, 0.14)), (0.45, (0.12, 0.17, 0.15)), (0.7, (0.13, 0.25, 0.18)), (1.0, (0.16, 0.31, 0.22))])
+    hue = _ramp(nt, sr.outputs[0], [(0.0, (0.12, 0.10, 0.135)), (0.25, (0.13, 0.125, 0.14)), (0.45, (0.12, 0.17, 0.15)), (0.7, (0.11, 0.2, 0.15)), (1.0, (0.12, 0.24, 0.17))])
     # nubes suaves y anchas
-    n1 = _noise(nt, mp.outputs[0], 4.0, 8, 0.6, 0.12)
+    # distorsión de dominio: deforma las coordenadas con un ruido grande
+    wn = _noise(nt, mp.outputs[0], 1.4, 2, 0.5, 0.0)
+    wsub = nt.nodes.new('ShaderNodeVectorMath')
+    wsub.operation = 'SUBTRACT'
+    nt.links.new(wn.outputs['Color'], wsub.inputs[0])
+    wsub.inputs[1].default_value = (0.5, 0.5, 0.5)
+    wsc = nt.nodes.new('ShaderNodeVectorMath')
+    wsc.operation = 'MULTIPLY_ADD'
+    nt.links.new(wsub.outputs[0], wsc.inputs[0])
+    wsc.inputs[1].default_value = (0.55, 0.55, 0.3)
+    nt.links.new(mp.outputs[0], wsc.inputs[2])
+    n1 = _noise(nt, wsc.outputs[0], 2.6, 12, 0.68, 0.0)
     n2 = _noise(nt, mp.outputs[0], 8.0, 6, 0.6, 0.0)
-    dark = _ramp(nt, n1.outputs['Fac'], [(0.34, (0.22, 0.18, 0.28)), (0.48, (0.6, 0.58, 0.66)), (0.6, (1.3, 1.4, 1.35)), (0.74, (2.1, 2.3, 2.15))])
+    dark = _ramp(nt, n1.outputs['Fac'], [(0.38, (0.22, 0.18, 0.28)), (0.48, (0.6, 0.57, 0.66)), (0.56, (1.0, 1.05, 1.02)), (0.66, (1.4, 1.55, 1.48)), (0.78, (1.85, 2.0, 1.9))])
     col = _mix_rgb(nt, 1.0, hue, dark, 'MULTIPLY')
     wisps = _ramp(nt, n2.outputs['Fac'], [(0.5, (0, 0, 0)), (0.8, (0.05, 0.08, 0.065))])
     col = _mix_rgb(nt, 1.0, col, wisps, 'ADD')
@@ -1274,7 +1285,7 @@ def build_lights():
     # luz de luna fría desde arriba-izquierda (ilumina la fachada frontal)
     sun("Luna_Principal", (48, 0, -8), 3.6, (0.82, 0.86, 0.85), 28)
     # contraluz verdoso desde atrás-derecha (bordes de los árboles y tejado)
-    sun("Contraluz_Verde", (70, 0, 150), 1.2, (0.55, 0.85, 0.65), 10)
+    sun("Contraluz_Verde", (65, 0, 140), 2.0, (0.55, 0.85, 0.65), 10)
     # relleno morado desde abajo (rebote del cielo)
     sun("Relleno_Morado", (115, 0, 20), 0.35, (0.75, 0.6, 0.9), 30)
 
