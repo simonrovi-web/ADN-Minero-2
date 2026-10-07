@@ -6,7 +6,8 @@ Recreación 3D, totalmente procedural, de la ilustración de la casa embrujada s
 |---|---|
 | `casa_embrujada.py` | Script que genera toda la escena (geometría, materiales, luces, cámara, render) |
 | `casa_embrujada.blend` | Escena ya generada (guardada con Blender 5.2) |
-| `render_casa_embrujada.png` | Render final en Cycles, 1920×1056, 128 muestras + denoise |
+| `render_casa_embrujada.png` | Render final en Cycles, 2000×1116 (mismo formato que la ilustración), 128 muestras + denoise |
+| `comparacion.jpg` | Ilustración original (izquierda) vs. render (derecha) |
 
 ## Cómo usarlo
 
@@ -15,7 +16,7 @@ Recreación 3D, totalmente procedural, de la ilustración de la casa embrujada s
 
 **Desde la terminal:**
 ```bash
-blender -b -P casa_embrujada.py -- --save escena.blend --render render.png --res 1920x1056 --samples 128
+blender -b -P casa_embrujada.py -- --save escena.blend --render render.png --res 2000x1116 --samples 128
 ```
 
 ## Qué contiene la escena (organizada en colecciones)

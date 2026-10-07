@@ -21,6 +21,7 @@ import sys
 from mathutils import Vector, Matrix, Euler, noise
 
 SEED = 7
+HOUSE_YAW = -52.0  # la casa se ve en esquina, como en la ilustración
 random.seed(SEED)
 noise.seed_set(SEED)
 
@@ -211,7 +212,7 @@ def mat_plaster(name):
     vec = _mapping(nt, 'Object', (1, 1, 1))
     n1 = _noise(nt, vec, 1.3, 10, 0.7)
     n2 = _noise(nt, vec, 9.0, 12, 0.75)
-    col = _ramp(nt, n1.outputs['Fac'], [(0.35, (0.16, 0.15, 0.16)), (0.55, (0.30, 0.29, 0.30)), (0.75, (0.40, 0.40, 0.38))])
+    col = _ramp(nt, n1.outputs['Fac'], [(0.35, (0.17, 0.18, 0.16)), (0.55, (0.32, 0.33, 0.29)), (0.75, (0.43, 0.44, 0.40))])
     streak = _noise(nt, _mapping(nt, 'Object', (3.0, 3.0, 0.25)), 2.0, 6, 0.6)
     col = _mix_rgb(nt, 0.55, col, _ramp(nt, streak.outputs['Fac'], [(0.4, (0.35, 0.35, 0.35)), (0.7, (1, 1, 1))]), 'MULTIPLY')
     nt.links.new(col, bsdf.inputs['Base Color'])
@@ -243,7 +244,7 @@ def mat_tiles(name):
     vec = _mapping(nt, 'Object', (1, 1, 1))
     n1 = _noise(nt, vec, 2.5, 8, 0.6)
     n2 = _noise(nt, vec, 25.0, 6, 0.6)
-    col = _ramp(nt, n1.outputs['Fac'], [(0.3, (0.045, 0.025, 0.03)), (0.5, (0.11, 0.055, 0.06)), (0.72, (0.18, 0.11, 0.115))])
+    col = _ramp(nt, n1.outputs['Fac'], [(0.3, (0.025, 0.015, 0.02)), (0.5, (0.065, 0.038, 0.048)), (0.72, (0.12, 0.075, 0.085))])
     moss = _ramp(nt, n2.outputs['Fac'], [(0.55, (1, 1, 1)), (0.75, (0.55, 0.6, 0.5))])
     col = _mix_rgb(nt, 1.0, col, moss, 'MULTIPLY')
     nt.links.new(col, bsdf.inputs['Base Color'])
@@ -259,28 +260,35 @@ def mat_rock(name):
     big = _noise(nt, vec, 0.35, 8, 0.65, 0.4)
     fine = _noise(nt, vec, 6.0, 12, 0.75)
     strata = _noise(nt, _mapping(nt, 'Object', (0.6, 0.6, 5.0)), 1.0, 6, 0.6)
-    rock = _ramp(nt, big.outputs['Fac'], [(0.3, (0.025, 0.022, 0.03)), (0.5, (0.075, 0.068, 0.085)), (0.72, (0.15, 0.14, 0.16))])
+    rock = _ramp(nt, big.outputs['Fac'], [(0.3, (0.012, 0.011, 0.016)), (0.5, (0.05, 0.045, 0.06)), (0.72, (0.13, 0.12, 0.14))])
     rock = _mix_rgb(nt, 0.4, rock, strata.outputs['Color'], 'OVERLAY')
     # máscara por orientación: superficies planas = tierra / musgo
     geo = nt.nodes.new('ShaderNodeNewGeometry')
     sep = nt.nodes.new('ShaderNodeSeparateXYZ')
     nt.links.new(geo.outputs['Normal'], sep.inputs[0])
     mr = nt.nodes.new('ShaderNodeMapRange')
-    mr.inputs['From Min'].default_value = 0.72
-    mr.inputs['From Max'].default_value = 0.92
+    mr.inputs['From Min'].default_value = 0.6
+    mr.inputs['From Max'].default_value = 0.85
     nt.links.new(sep.outputs['Z'], mr.inputs['Value'])
     mask = nt.nodes.new('ShaderNodeMath')
     mask.operation = 'MULTIPLY'
     nt.links.new(mr.outputs[0], mask.inputs[0])
     nm = _noise(nt, vec, 1.5, 6, 0.6)
     mm = nt.nodes.new('ShaderNodeMapRange')
-    mm.inputs['From Min'].default_value = 0.35
-    mm.inputs['From Max'].default_value = 0.6
+    mm.inputs['From Min'].default_value = 0.25
+    mm.inputs['From Max'].default_value = 0.45
     nt.links.new(nm.outputs['Fac'], mm.inputs['Value'])
     nt.links.new(mm.outputs[0], mask.inputs[1])
-    dirt = _ramp(nt, fine.outputs['Fac'], [(0.35, (0.08, 0.075, 0.06)), (0.6, (0.20, 0.19, 0.14)), (0.8, (0.26, 0.26, 0.20))])
+    dirt = _ramp(nt, fine.outputs['Fac'], [(0.35, (0.10, 0.095, 0.075)), (0.6, (0.24, 0.23, 0.17)), (0.8, (0.32, 0.31, 0.24))])
     col = _mix_rgb(nt, mask.outputs[0], rock, dirt)
     col = _mix_rgb(nt, 1.0, col, (0.78, 0.7, 0.85), 'MULTIPLY')
+    # oclusión/curvatura: grietas oscuras, aristas más claras
+    pr = nt.nodes.new('ShaderNodeMapRange')
+    pr.inputs['From Min'].default_value = 0.45
+    pr.inputs['From Max'].default_value = 0.56
+    nt.links.new(geo.outputs['Pointiness'], pr.inputs['Value'])
+    cav = _ramp(nt, pr.outputs[0], [(0.0, (0.35, 0.35, 0.38)), (0.5, (1, 1, 1)), (1.0, (1.6, 1.6, 1.55))])
+    col = _mix_rgb(nt, 1.0, col, cav, 'MULTIPLY')
     nt.links.new(col, bsdf.inputs['Base Color'])
     bsdf.inputs['Roughness'].default_value = 0.93
     h = nt.nodes.new('ShaderNodeMath')
@@ -311,11 +319,11 @@ def mat_glass_dark(name):
 
 def build_materials():
     M = {}
-    M['wood'] = mat_wood('Madera_Tablones', (0.16, 0.115, 0.115), (0.05, 0.035, 0.04))
+    M['wood'] = mat_wood('Madera_Tablones', (0.17, 0.12, 0.14), (0.055, 0.04, 0.05))
     M['wood_dark'] = mat_wood('Madera_Oscura', (0.09, 0.065, 0.07), (0.03, 0.02, 0.025))
-    M['wood_grey'] = mat_wood('Madera_Gris', (0.17, 0.155, 0.14), (0.05, 0.045, 0.045))
+    M['wood_grey'] = mat_wood('Madera_Gris', (0.2, 0.185, 0.17), (0.06, 0.055, 0.055))
     M['plaster'] = mat_plaster('Revoque')
-    M['stone'] = mat_stone('Piedra_Muro', (0.24, 0.235, 0.22))
+    M['stone'] = mat_stone('Piedra_Muro', (0.15, 0.15, 0.14))
     M['brick'] = mat_stone('Ladrillo_Expuesto', (0.19, 0.16, 0.17))
     M['tiles'] = mat_tiles('Tejas')
     M['rock'] = mat_rock('Roca_Penasco')
@@ -659,18 +667,20 @@ def build_house(M):
     mb = MeshBuilder()
     ax0, ax1, ay0, ay1 = 0.6, 4.4, -1.8, 1.8
     mb.box(((ax0 + ax1) / 2, (ay0 + ay1) / 2, -2.8), (ax1 - ax0, ay1 - ay0, 6.4), M['stone'])
-    low_door = (2.2, -3.75, 3.05, -1.75)
-    stone_blocks(mb, M, (ax0, ay0, -5.5), X, -Y, ax1 - ax0, 5.9,
+    # la puerta baja está en la cara derecha (+X), que mira hacia la cámara-derecha
+    low_door = (1.55, -3.75, 2.35, -1.75)
+    stone_blocks(mb, M, (ax0, ay0, -5.5), X, -Y, ax1 - ax0, 5.9)
+    stone_blocks(mb, M, (ax1, ay0, -5.5), Y, X, ay1 - ay0, 5.9,
                  openings=[(low_door[0], low_door[1] + 5.5, low_door[2], low_door[3] + 5.5)])
-    stone_blocks(mb, M, (ax1, ay0, -5.5), Y, X, ay1 - ay0, 5.9)
-    door(mb, M, (ax0, ay0 - 0.06, 0), X, -Y, low_door[0] - ax0, low_door[2] - low_door[0], 2.0, v0=-3.75)
-    window(mb, M, (ax1 + 0.06, ay0, 0), Y, X, 1.3, -2.8, 0.5, 0.7, boarded=True)
+    door(mb, M, (ax1 + 0.06, ay0, 0), Y, X, low_door[0], low_door[2] - low_door[0], 2.0, v0=-3.75)
+    # dintel de piedra sobre la puerta baja
+    mb.box((ax1 + 0.12, ay0 + (low_door[0] + low_door[2]) / 2, -1.62), (0.2, 1.1, 0.22), M['stone'])
     mb.build("Casa_BasePiedra", coll, bevel=0.015)
 
     # ---------- B: torre revocada + C: base izquierda revocada ----------
     mb = MeshBuilder()
     mb.box(((ax0 + ax1) / 2, (ay0 + ay1) / 2, 1.7), (ax1 - ax0, ay1 - ay0, 2.6), M['plaster'])
-    cx0, cx1, cy0, cy1 = -3.2, 0.6, -1.4, 1.8
+    cx0, cx1, cy0, cy1 = -3.4, 0.6, -2.0, 1.8
     mb.box(((cx0 + cx1) / 2, (cy0 + cy1) / 2, 0.6), (cx1 - cx0, cy1 - cy0, 3.6), M['plaster'])
     for (o, u, n, w, patches) in [
         ((ax0, ay0, 0), X, -Y, ax1 - ax0, [(0.5, 2.4, 0.7, 0.8), (3.4, 0.9, 0.8, 0.9), (3.6, 2.6, 0.5, 0.5)]),
@@ -681,22 +691,24 @@ def build_house(M):
         for (uc, vc, w_, h_) in patches:
             brick_patch(mb, M, o, u, n, uc, vc, w_, h_)
     # puerta media y ventana tapiada
-    door(mb, M, (ax0, ay0 - 0.02, 0), X, -Y, 0.8, 0.75, 1.95, v0=0.45, ajar=True)
-    window(mb, M, (ax0, ay0 - 0.02, 0), X, -Y, 2.25, 1.15, 0.8, 1.0, boarded=True)
-    window(mb, M, (ax1 + 0.02, ay0, 0), Y, X, 1.5, 1.2, 0.6, 0.85, broken=True)
-    # repisa con baranda frente a la puerta media
-    mb.box((1.2, ay0 - 0.45, 0.38), (1.6, 0.9, 0.12), M['wood_dark'])
-    railing(mb, M, (0.45, ay0 - 0.85, 0.44), (1.95, ay0 - 0.85, 0.44), height=0.95, broken=0.25)
-    # repisa lateral derecha con cerca rota
-    mb.box((ax1 + 0.7, -0.3, 0.32), (1.4, 2.8, 0.14), M['wood_dark'], rot=(0.03, -0.04, 0))
-    for i in range(9):
-        if random.random() < 0.25:
+    # cara derecha (+X): puerta media entreabierta, ventana tapiada y baranda
+    door(mb, M, (ax1 + 0.02, ay0, 0), Y, X, 1.0, 0.75, 1.95, v0=0.45, ajar=True)
+    window(mb, M, (ax1 + 0.02, ay0, 0), Y, X, 2.35, 1.15, 0.75, 0.95, boarded=True)
+    mb.box((ax1 + 0.45, ay0 + 0.85, 0.38), (0.9, 1.9, 0.12), M['wood_dark'])
+    railing(mb, M, (ax1 + 0.85, ay0 - 0.05, 0.44), (ax1 + 0.85, ay0 + 1.0, 0.44), height=0.95, spacing=0.15, broken=0.1)
+    railing(mb, M, (ax1 + 0.05, ay0 - 0.05, 0.44), (ax1 + 0.85, ay0 - 0.05, 0.44), height=0.95, spacing=0.15, broken=0.1)
+    # cara frontal (-Y) de la torre: ventanita
+    window(mb, M, (ax0, ay0 - 0.02, 0), X, -Y, 2.6, 1.3, 0.5, 0.75, broken=True)
+    # repisa trasera-derecha con cerca rota (sobresale de la torre)
+    mb.box((ax1 + 0.5, ay1 + 0.4, 0.32), (1.4, 1.6, 0.14), M['wood_dark'], rot=(0.03, -0.04, 0))
+    for i in range(7):
+        if random.random() < 0.2:
             continue
-        yy = -1.6 + i * 0.32
-        h = random.uniform(0.6, 1.25)
-        mb.box((ax1 + 1.32, yy, 0.38 + h / 2), (0.06, 0.06, h), M['wood_grey'],
-               rot=(random.uniform(-0.25, 0.25), random.uniform(-0.3, 0.3), 0))
-    mb.box((ax1 + 1.34, -0.4, 1.15), (0.06, 2.2, 0.07), M['wood_grey'], rot=(0.12, 0, 0))
+        yy = ay1 - 0.3 + i * 0.2
+        h = random.uniform(0.6, 1.2)
+        mb.box((ax1 + 1.15, yy, 0.38 + h / 2), (0.06, 0.06, h), M['wood_grey'],
+               rot=(random.uniform(-0.25, 0.25), random.uniform(-0.35, 0.35), 0))
+    mb.box((ax1 + 1.17, ay1 + 0.3, 1.0), (0.06, 1.4, 0.07), M['wood_grey'], rot=(0.25, 0, 0))
     # escalera izquierda (sube hasta el nivel de madera)
     steps = 12
     sx0, sx1, sz0, sz1 = -4.7, -1.35, -0.25, 2.4
@@ -714,7 +726,7 @@ def build_house(M):
 
     # ---------- D: nivel de madera izquierdo ----------
     mb = MeshBuilder()
-    dx0, dx1, dy0, dy1 = -3.0, 0.6, -1.2, 1.8
+    dx0, dx1, dy0, dy1 = -3.2, 0.6, -1.9, 1.8
     dz0, dz1 = 2.4, 5.4
     wood_volume(mb, M, dx0, dx1, dy0, dy1, dz0, dz1, {
         '-Y': [(1.75, 0.05, 2.6, 2.1), (0.45, 0.9, 1.05, 2.0)],
@@ -781,19 +793,19 @@ def build_house(M):
 
     # ---------- F: ala superior izquierda (hastial al frente) ----------
     mb = MeshBuilder()
-    fx0, fx1, fy0, fy1 = -3.1, 0.4, -1.2, 1.8
-    fz0, fz_eave, fz_peak = 5.55, 8.0, 10.3
+    fx0, fx1, fy0, fy1 = -3.6, 0.4, -2.0, 1.8
+    fz0, fz_eave, fz_peak = 5.55, 8.4, 11.3
     mb.box(((fx0 + fx1) / 2, (fy0 + fy1) / 2, (fz0 + fz_eave) / 2), (fx1 - fx0 - 0.02, fy1 - fy0 - 0.02, fz_eave - fz0), M['wood_dark'])
     w = fx1 - fx0
     gable_wall(mb, M, (fx0, fy0, 0), X, -Y, w, fz0, fz_eave - fz0, fz_peak - fz0,
-               openings=[(0.85, 0.0, 1.7, 2.1), (1.5, 2.75, 2.05, 3.65)])
+               openings=[(0.85, 0.0, 1.7, 2.1), (1.75, 3.3, 2.25, 4.2)])
     gable_wall(mb, M, (fx1, fy1, 0), -X, Y, w, fz0, fz_eave - fz0, fz_peak - fz0)
     plank_wall(mb, M['wood'], (fx0, fy1, fz0), -Y, -X, fy1 - fy0, fz_eave - fz0, openings=[(1.0, 0.8, 1.6, 1.9)])
     plank_wall(mb, M['wood'], (fx1, fy0, fz0), Y, X, fy1 - fy0, fz_eave - fz0)
     for (cx, cy) in ((fx0, fy0), (fx1, fy0), (fx1, fy1), (fx0, fy1)):
         mb.box((cx, cy, (fz0 + fz_eave) / 2), (0.16, 0.16, fz_eave - fz0), M['wood_dark'])
     door(mb, M, (fx0, fy0 - 0.06, 0), X, -Y, 0.9, 0.75, 2.0, v0=fz0 + 0.05)
-    window(mb, M, (fx0, fy0 - 0.06, 0), X, -Y, 1.55, fz0 + 2.8, 0.45, 0.8)
+    window(mb, M, (fx0, fy0 - 0.06, 0), X, -Y, 1.75, fz0 + 3.3, 0.5, 0.9)
     window(mb, M, (fx0 - 0.06, fy1, 0), -Y, -X, 1.0, fz0 + 0.85, 0.55, 1.0)
     # balconcito
     mb.box((fx0 + 1.3, fy0 - 0.5, fz0 - 0.02), (2.3, 1.0, 0.12), M['wood_dark'])
@@ -841,7 +853,7 @@ def build_house(M):
     for ob in coll.objects:
         if ob is not pivot:
             ob.parent = pivot
-    pivot.rotation_euler = (0.0, -0.015, 0.0)
+    pivot.rotation_euler = (0.0, -0.015, math.radians(HOUSE_YAW))
     return pivot
 
 
@@ -854,10 +866,19 @@ def terrain_height(x, y):
     # Meseta superior (casi plana, desciende hacia la derecha por el sendero)
     top = 0.15 * noise.noise(Vector((x * 0.3, y * 0.3, 0.0)))
     # escalón delante de la torre de piedra (la base baja de la casa)
-    step_mask = smoothstep(0.0, 1.2, x - 0.2) * smoothstep(-0.6, -2.2, y) * (1 - smoothstep(5.5, 8.0, x))
+    # (en coordenadas locales de la casa, que está girada HOUSE_YAW)
+    th = math.radians(-HOUSE_YAW)
+    lx = x * math.cos(th) - y * math.sin(th)
+    ly = x * math.sin(th) + y * math.cos(th)
+    local = smoothstep(4.3, 5.0, lx) * smoothstep(3.4, 2.6, ly) * smoothstep(-4.5, -3.0, ly)
+    # repisa baja que sigue hacia la derecha (donde están los árboles de la derecha)
+    right = smoothstep(2.5, 4.0, x) * smoothstep(5.0, 3.5, y)
+    step_mask = max(local, right)
     top -= 3.75 * step_mask
+    # la meseta baja suavemente hacia el frente (se ve su superficie desde la cámara)
+    top -= 0.45 * max(0.0, -y - 2.5) * (1 - step_mask)
     # sendero que baja a la derecha
-    top -= max(0.0, x - 5.0) * 0.45 * smoothstep(-0.5, -3.0, y)
+    top -= max(0.0, x - 6.0) * 0.35 * step_mask
     # forma de la mesa: radio variable con el ángulo
     cx, cy = 0.8, 1.5
     dx, dy = (x - cx) / 1.0, (y - cy) / 0.85
@@ -865,8 +886,8 @@ def terrain_height(x, y):
     ang = math.atan2(dy, dx)
     R = 7.2 + 1.6 * noise.noise(Vector((math.cos(ang) * 1.5, math.sin(ang) * 1.5, 3.3))) \
         + 2.5 * max(0.0, math.cos(ang - 0.0)) * 0.9 - 0.8 * max(0.0, -math.sin(ang))
-    drop = smoothstep(R, R + 6.0, r)
-    h = top - 34.0 * drop ** 0.6
+    drop = smoothstep(R, R + 17.0, r)
+    h = top - 36.0 * drop ** 0.8
     # terrazas / estratos irregulares en el acantilado
     if drop > 0.01:
         step = 1.9
@@ -880,7 +901,7 @@ def terrain_height(x, y):
         # columnas verticales: celdas voronoi 2D con desfase de altura por celda
         dc, pc = noise.voronoi(Vector((x * 0.38, y * 0.38, 0.0)), distance_metric='DISTANCE', exponent=2.5)
         cell = noise.noise(pc[0] * 7.31)
-        h += cell * 3.5 * smoothstep(0.05, 0.35, drop)
+        h -= abs(cell) * 3.5 * smoothstep(0.05, 0.35, drop)
         # borde de cada columna ligeramente biselado
         h -= max(0.0, 0.25 - (dc[1] - dc[0])) * 4.0 * smoothstep(0.05, 0.35, drop)
     return h
@@ -937,9 +958,10 @@ def build_terrain(M):
         if slope < 0.8 or h > -1.0 or h < -30:
             continue
         # evitar tapar la base de la casa
-        if -3.5 < x < 5.0 and -2.6 < y < 2.5 and h > -6:
-            continue
         s = random.uniform(0.8, 2.6)
+        # la roca no debe asomar por encima del borde de la meseta (taparía la casa)
+        if h - s * 0.5 + s * 2.2 > -1.2 - 0.0 * x and y < 0:
+            continue
         add_boulder(rocks, M, Vector((x, y, h - s * 0.5)), s, tall=2.2)
         placed += 1
     # algunas rocas sueltas en la meseta y bordes
@@ -989,29 +1011,37 @@ def build_tree(name, coll, M, base, height, radius, seed, lean=(0.0, 0.0), sprea
     coll.objects.link(ob)
 
     def grow(p, d, length, r, level):
-        steps = max(4, int(length / 0.18))
+        """Rama retorcida: curvatura continua (no ruido), pocas ramas hijas
+        gruesas que se abren y se curvan hacia arriba como garras."""
+        steps = max(5, int(length / 0.2))
         seg = length / steps
         pts = [(p.copy(), r)]
         cur = p.copy()
         dd = d.normalized()
+        # posiciones fijas de las ramas hijas (pocas, como en la ilustración)
+        nkids = 0 if level >= depth else rnd.choice((4, 5) if level == 0 else (2, 3) if level == 1 else (2, 2))
+        kid_t = sorted(rnd.uniform(0.38 if level == 0 else 0.25, 0.95) for _ in range(nkids))
         children = []
+        bend = Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), 0)).normalized() * rnd.uniform(0.04, 0.09)
         twist = rnd.uniform(-1, 1)
         for k in range(1, steps + 1):
             t = k / steps
-            # meandro: desviación aleatoria + ligera curvatura hacia arriba/afuera
-            jitter = Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), rnd.uniform(-0.6, 0.8))) * 0.32
+            jitter = Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), rnd.uniform(-0.5, 0.5))) * 0.07
             curl = Vector((-dd.y, dd.x, 0)) * twist * 0.12
-            dd = (dd + jitter + curl + Z * (0.06 if level > 0 else 0.1)).normalized()
+            # las puntas tienden a curvarse hacia arriba
+            up = Z * (0.03 + 0.10 * t if level > 0 else 0.05)
+            dd = (dd + jitter + curl + bend * math.sin(t * math.pi * 1.3) + up).normalized()
             cur = cur + dd * seg
-            rr = r * (1 - 0.7 * t)
-            # base del tronco ensanchada
-            if level == 0 and t < 0.12:
-                rr = r * (1.6 - 5 * t)
-            pts.append((cur.copy(), max(rr, 0.006)))
-            if level < depth and k > 1 and t > (0.3 if level == 0 else 0.2) and rnd.random() < (0.38 if level == 0 else 0.3):
-                side = Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), rnd.uniform(-0.1, 0.9))).normalized()
-                nd = (dd * 0.4 + side * spread).normalized()
-                children.append((cur.copy(), nd, length * rnd.uniform(0.45, 0.7) * (1 - t * 0.35), rr * rnd.uniform(0.55, 0.8), level + 1))
+            rr = r * (1 - 0.72 * t ** 0.8)
+            if level == 0 and t < 0.15:
+                rr = r * (1.7 - 4.7 * t)
+            pts.append((cur.copy(), max(rr, 0.008)))
+            while kid_t and t >= kid_t[0]:
+                kid_t.pop(0)
+                side = Vector((rnd.uniform(-1, 1), rnd.uniform(-0.6, 0.6), rnd.uniform(0.1, 0.6))).normalized()
+                nd = (dd * 0.35 + side * spread).normalized()
+                children.append((cur.copy(), nd, length * rnd.uniform(0.55, 0.85) * (1 - t * 0.3),
+                                 rr * rnd.uniform(0.7, 0.9), level + 1))
         sp = cu.splines.new('NURBS')
         sp.points.add(len(pts) - 1)
         for i, (co, rr) in enumerate(pts):
@@ -1020,11 +1050,11 @@ def build_tree(name, coll, M, base, height, radius, seed, lean=(0.0, 0.0), sprea
         sp.order_u = 3
         sp.use_endpoint_u = True
         sp.resolution_u = 3
-        # termina en varias puntas finas (ramitas)
-        if level >= depth - 1 or not children:
-            for _ in range(rnd.randint(1, 3)):
-                twig = Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), rnd.uniform(0, 1))).normalized()
-                children.append((cur.copy(), (dd + twig).normalized(), length * 0.35, pts[-1][1], depth + 1)) if level < depth + 1 else None
+        # puntas: 2-3 ramitas cortas y curvas
+        if level == depth:
+            for _ in range(rnd.randint(1, 2)):
+                tw = Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), rnd.uniform(0.2, 1))).normalized()
+                children.append((cur.copy(), (dd + tw * 0.8).normalized(), length * 0.45, pts[-1][1] * 1.2, depth + 1))
         for c in children:
             if c[4] <= depth + 1:
                 grow(*c)
@@ -1056,10 +1086,10 @@ def build_trees(M):
     coll = collection("Arboles")
     trees = [
         # (nombre, base xy, altura tronco, radio, inclinación, apertura, profundidad)
-        ("Arbol_Izq_Fondo", (-6.0, 0.6), 6.0, 0.4, (-0.35, 0.1), 1.0, 4),
-        ("Arbol_Primer_Plano", (-3.6, -5.2), 12.0, 0.55, (0.05, -0.15), 1.1, 2),
-        ("Arbol_Derecha", (8.4, -1.4), 5.5, 0.4, (-0.2, 0.0), 1.05, 4),
-        ("Arbol_Derecha_Lejos", (10.1, -0.8), 3.8, 0.25, (0.15, 0.0), 1.0, 3),
+        ("Arbol_Izq_Fondo", (-6.6, 0.0), 6.0, 0.5, (-0.6, 0.0), 1.2, 3),
+        ("Arbol_Primer_Plano", (-3.5, -7.5), 10.5, 0.5, (0.06, -0.05), 1.2, 2),
+        ("Arbol_Derecha", (8.4, -1.4), 6.5, 0.5, (0.45, -0.05), 1.2, 3),
+        ("Arbol_Derecha_Lejos", (11.4, -0.6), 4.2, 0.3, (0.1, 0.0), 1.1, 3),
     ]
     for i, (n, (x, y), h, r, lean, spread, depth) in enumerate(trees):
         z = terrain_height(x, y)
@@ -1069,14 +1099,14 @@ def build_trees(M):
     mb = MeshBuilder()
     random.seed(SEED + 9)
     for k in range(6):
-        x = 8.6 + k * 0.22
-        y = 0.6 + k * 0.05
+        x = 10.4 + k * 0.22
+        y = -0.9 + k * 0.05
         h = random.uniform(0.5, 1.1)
         z = terrain_height(x, y)
         mb.box((x, y, z + h / 2 - 0.1), (0.07, 0.07, h), M['wood_grey'],
                rot=(random.uniform(-0.3, 0.3), random.uniform(-0.3, 0.3), 0))
-    z = terrain_height(9.1, 0.7)
-    mb.box((9.1, 0.7, z + 0.6), (1.3, 0.06, 0.08), M['wood_grey'], rot=(0, 0.25, 0.2))
+    z = terrain_height(10.9, -0.8)
+    mb.box((10.9, -0.8, z + 0.6), (1.3, 0.06, 0.08), M['wood_grey'], rot=(0, 0.25, 0.2))
     mb.build("Cerca_Rota", coll)
 
 
@@ -1096,17 +1126,30 @@ def build_world():
     out = nt.nodes.new('ShaderNodeOutputWorld')
     tc = nt.nodes.new('ShaderNodeTexCoord')
     mp = nt.nodes.new('ShaderNodeMapping')
-    mp.inputs['Scale'].default_value = (1.0, 1.0, 2.2)
+    mp.inputs['Scale'].default_value = (1.0, 1.0, 2.6)
     nt.links.new(tc.outputs['Generated'], mp.inputs['Vector'])
-    # nubes: ruido distorsionado en dos escalas
-    n1 = _noise(nt, mp.outputs[0], 1.5, 5, 0.55, 0.8)
-    n2 = _noise(nt, mp.outputs[0], 3.0, 4, 0.5, 0.6)
-    # bandas verde/morado
-    band = _noise(nt, mp.outputs[0], 1.1, 4, 0.5, 2.0)
-    hue = _ramp(nt, band.outputs['Fac'], [(0.35, (0.10, 0.05, 0.13)), (0.5, (0.12, 0.10, 0.14)), (0.66, (0.15, 0.30, 0.22))])
-    dark = _ramp(nt, n1.outputs['Fac'], [(0.25, (0.25, 0.22, 0.28)), (0.5, (0.55, 0.55, 0.55)), (0.8, (1.0, 1.0, 1.0))])
+    # degradado lateral: morado a la izquierda, verde a la derecha (según la cámara)
+    dot = nt.nodes.new('ShaderNodeVectorMath')
+    dot.operation = 'DOT_PRODUCT'
+    nt.links.new(tc.outputs['Generated'], dot.inputs[0])
+    dot.inputs[1].default_value = (0.94, -0.33, 0.25)
+    warp = _noise(nt, mp.outputs[0], 1.2, 3, 0.5, 0.3)
+    side = nt.nodes.new('ShaderNodeMath')
+    side.operation = 'MULTIPLY_ADD'
+    nt.links.new(warp.outputs['Fac'], side.inputs[0])
+    side.inputs[1].default_value = 0.6
+    nt.links.new(dot.outputs['Value'], side.inputs[2])
+    sr = nt.nodes.new('ShaderNodeMapRange')
+    sr.inputs['From Min'].default_value = -0.1
+    sr.inputs['From Max'].default_value = 1.0
+    nt.links.new(side.outputs[0], sr.inputs['Value'])
+    hue = _ramp(nt, sr.outputs[0], [(0.0, (0.12, 0.10, 0.135)), (0.35, (0.14, 0.13, 0.15)), (0.7, (0.14, 0.23, 0.18)), (1.0, (0.16, 0.30, 0.22))])
+    # nubes suaves y anchas
+    n1 = _noise(nt, mp.outputs[0], 4.0, 8, 0.6, 0.12)
+    n2 = _noise(nt, mp.outputs[0], 8.0, 6, 0.6, 0.0)
+    dark = _ramp(nt, n1.outputs['Fac'], [(0.32, (0.3, 0.27, 0.36)), (0.47, (0.75, 0.75, 0.78)), (0.6, (1.35, 1.4, 1.38)), (0.75, (2.0, 2.1, 2.05))])
     col = _mix_rgb(nt, 1.0, hue, dark, 'MULTIPLY')
-    wisps = _ramp(nt, n2.outputs['Fac'], [(0.5, (0, 0, 0)), (0.8, (0.10, 0.17, 0.14))])
+    wisps = _ramp(nt, n2.outputs['Fac'], [(0.5, (0, 0, 0)), (0.8, (0.05, 0.08, 0.065))])
     col = _mix_rgb(nt, 1.0, col, wisps, 'ADD')
     bg = nt.nodes.new('ShaderNodeBackground')
     bg.inputs['Strength'].default_value = 1.0
@@ -1114,7 +1157,7 @@ def build_world():
     # para la iluminación, un tono uniforme suave (luz ambiental)
     amb = nt.nodes.new('ShaderNodeBackground')
     amb.inputs['Color'].default_value = (0.11, 0.12, 0.13, 1)
-    amb.inputs['Strength'].default_value = 0.55
+    amb.inputs['Strength'].default_value = 0.75
     lp = nt.nodes.new('ShaderNodeLightPath')
     mix = nt.nodes.new('ShaderNodeMixShader')
     nt.links.new(lp.outputs['Is Camera Ray'], mix.inputs[0])
@@ -1135,7 +1178,7 @@ def build_lights():
         coll.objects.link(ob)
         return ob
     # luz de luna fría desde arriba-izquierda (ilumina la fachada frontal)
-    sun("Luna_Principal", (55, 0, -35), 3.2, (0.78, 0.85, 0.88), 6)
+    sun("Luna_Principal", (50, 0, -25), 2.8, (0.82, 0.86, 0.85), 15)
     # contraluz verdoso desde atrás-derecha (bordes de los árboles y tejado)
     sun("Contraluz_Verde", (70, 0, 150), 1.2, (0.55, 0.85, 0.65), 10)
     # relleno morado desde abajo (rebote del cielo)
@@ -1144,12 +1187,12 @@ def build_lights():
 
 def build_camera():
     cam = bpy.data.cameras.new("Camara")
-    cam.lens = 32
+    cam.lens = 38
     cam.sensor_width = 36
     ob = bpy.data.objects.new("Camara", cam)
     bpy.context.scene.collection.objects.link(ob)
-    ob.location = (-7.5, -28.0, -8.0)
-    target = Vector((1.6, 0.0, 1.8))
+    ob.location = (-5.0, -40.0, 7.0)
+    target = Vector((1.0, 0.0, 2.9))
     d = target - ob.location
     ob.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
     bpy.context.scene.camera = ob
@@ -1172,7 +1215,7 @@ def setup_render(res=(1920, 1048), samples=128):
         sc.view_settings.look = 'AgX - Medium High Contrast'
     except Exception:
         pass
-    sc.view_settings.exposure = 0.0
+    sc.view_settings.exposure = 0.45
 
 
 def main():
