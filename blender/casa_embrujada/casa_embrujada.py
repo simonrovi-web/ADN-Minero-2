@@ -186,13 +186,13 @@ def _bump(nt, bsdf, height, strength, distance=0.05):
     nt.links.new(b.outputs[0], bsdf.inputs['Normal'])
 
 
-def mat_wood(name, base, dark, grain_scale=(1, 1, 14)):
+def mat_wood(name, base, dark, grain_scale=(1, 1, 14), bands='Z'):
     """Madera envejecida: veta (wave) + suciedad (noise)."""
     m, nt, bsdf = new_material(name)
     vec = _mapping(nt, 'Object', grain_scale)
     wave = nt.nodes.new('ShaderNodeTexWave')
     wave.wave_type = 'BANDS'
-    wave.bands_direction = 'Z'
+    wave.bands_direction = bands
     wave.inputs['Scale'].default_value = 1.6
     wave.inputs['Distortion'].default_value = 9.0
     wave.inputs['Detail'].default_value = 6.0
@@ -212,7 +212,7 @@ def mat_plaster(name):
     vec = _mapping(nt, 'Object', (1, 1, 1))
     n1 = _noise(nt, vec, 1.3, 10, 0.7)
     n2 = _noise(nt, vec, 9.0, 12, 0.75)
-    col = _ramp(nt, n1.outputs['Fac'], [(0.35, (0.17, 0.18, 0.16)), (0.55, (0.32, 0.33, 0.29)), (0.75, (0.43, 0.44, 0.40))])
+    col = _ramp(nt, n1.outputs['Fac'], [(0.35, (0.09, 0.07, 0.085)), (0.55, (0.17, 0.14, 0.16)), (0.75, (0.25, 0.22, 0.23))])
     streak = _noise(nt, _mapping(nt, 'Object', (3.0, 3.0, 0.25)), 2.0, 6, 0.6)
     col = _mix_rgb(nt, 0.55, col, _ramp(nt, streak.outputs['Fac'], [(0.4, (0.35, 0.35, 0.35)), (0.7, (1, 1, 1))]), 'MULTIPLY')
     nt.links.new(col, bsdf.inputs['Base Color'])
@@ -260,7 +260,7 @@ def mat_rock(name):
     big = _noise(nt, vec, 0.35, 8, 0.65, 0.4)
     fine = _noise(nt, vec, 6.0, 12, 0.75)
     strata = _noise(nt, _mapping(nt, 'Object', (0.6, 0.6, 5.0)), 1.0, 6, 0.6)
-    rock = _ramp(nt, big.outputs['Fac'], [(0.3, (0.012, 0.011, 0.016)), (0.5, (0.05, 0.045, 0.06)), (0.72, (0.13, 0.12, 0.14))])
+    rock = _ramp(nt, big.outputs['Fac'], [(0.3, (0.008, 0.007, 0.011)), (0.5, (0.035, 0.032, 0.044)), (0.72, (0.11, 0.105, 0.12))])
     rock = _mix_rgb(nt, 0.4, rock, strata.outputs['Color'], 'OVERLAY')
     # máscara por orientación: superficies planas = tierra / musgo
     geo = nt.nodes.new('ShaderNodeNewGeometry')
@@ -281,13 +281,13 @@ def mat_rock(name):
     nt.links.new(mm.outputs[0], mask.inputs[1])
     dirt = _ramp(nt, fine.outputs['Fac'], [(0.35, (0.10, 0.095, 0.075)), (0.6, (0.24, 0.23, 0.17)), (0.8, (0.32, 0.31, 0.24))])
     col = _mix_rgb(nt, mask.outputs[0], rock, dirt)
-    col = _mix_rgb(nt, 1.0, col, (0.78, 0.7, 0.85), 'MULTIPLY')
+    col = _mix_rgb(nt, 1.0, col, (0.5, 0.45, 0.55), 'MULTIPLY')
     # oclusión/curvatura: grietas oscuras, aristas más claras
     pr = nt.nodes.new('ShaderNodeMapRange')
     pr.inputs['From Min'].default_value = 0.45
     pr.inputs['From Max'].default_value = 0.56
     nt.links.new(geo.outputs['Pointiness'], pr.inputs['Value'])
-    cav = _ramp(nt, pr.outputs[0], [(0.0, (0.35, 0.35, 0.38)), (0.5, (1, 1, 1)), (1.0, (1.6, 1.6, 1.55))])
+    cav = _ramp(nt, pr.outputs[0], [(0.0, (0.25, 0.25, 0.28)), (0.5, (1, 1, 1)), (1.0, (1.5, 1.55, 1.45))])
     col = _mix_rgb(nt, 1.0, col, cav, 'MULTIPLY')
     nt.links.new(col, bsdf.inputs['Base Color'])
     bsdf.inputs['Roughness'].default_value = 0.93
@@ -296,6 +296,43 @@ def mat_rock(name):
     nt.links.new(fine.outputs['Fac'], h.inputs[0])
     nt.links.new(strata.outputs['Fac'], h.inputs[1])
     _bump(nt, bsdf, h.outputs[0], 0.7, 0.15)
+    # grietas verticales (voronoi aplastado en Z): relieve real por desplazamiento
+    cr = nt.nodes.new('ShaderNodeTexVoronoi')
+    cr.feature = 'DISTANCE_TO_EDGE'
+    cr.inputs['Scale'].default_value = 0.5
+    nt.links.new(_mapping(nt, 'Object', (1.0, 1.0, 0.22)), cr.inputs['Vector'])
+    crr = nt.nodes.new('ShaderNodeMapRange')
+    crr.inputs['From Min'].default_value = 0.0
+    crr.inputs['From Max'].default_value = 0.12
+    nt.links.new(cr.outputs['Distance'], crr.inputs['Value'])
+    # oscurecer el fondo de las grietas
+    crack_col = _ramp(nt, crr.outputs[0], [(0.0, (0.15, 0.15, 0.17)), (0.6, (1, 1, 1))])
+    final = _mix_rgb(nt, 1.0, col, crack_col, 'MULTIPLY')
+    nt.links.new(final, bsdf.inputs['Base Color'])
+    disp = nt.nodes.new('ShaderNodeDisplacement')
+    disp.inputs['Scale'].default_value = 0.6
+    disp.inputs['Midlevel'].default_value = 0.0
+    hh = nt.nodes.new('ShaderNodeMath')
+    hh.operation = 'MULTIPLY_ADD'
+    nt.links.new(crr.outputs[0], hh.inputs[0])
+    hh.inputs[1].default_value = 0.8
+    nt.links.new(big.outputs['Fac'], hh.inputs[2])
+    # solo en las paredes: la meseta (plana) queda lisa
+    steep = nt.nodes.new('ShaderNodeMath')
+    steep.operation = 'SUBTRACT'
+    steep.inputs[0].default_value = 1.0
+    nt.links.new(mr.outputs[0], steep.inputs[1])
+    hm = nt.nodes.new('ShaderNodeMath')
+    hm.operation = 'MULTIPLY'
+    nt.links.new(hh.outputs[0], hm.inputs[0])
+    nt.links.new(steep.outputs[0], hm.inputs[1])
+    nt.links.new(hm.outputs[0], disp.inputs['Height'])
+    out = nt.nodes.get('Material Output')
+    nt.links.new(disp.outputs[0], out.inputs['Displacement'])
+    try:
+        m.displacement_method = 'BOTH'
+    except Exception:
+        m.cycles.displacement_method = 'BOTH'
     return m
 
 
@@ -327,7 +364,7 @@ def build_materials():
     M['brick'] = mat_stone('Ladrillo_Expuesto', (0.19, 0.16, 0.17))
     M['tiles'] = mat_tiles('Tejas')
     M['rock'] = mat_rock('Roca_Penasco')
-    M['bark'] = mat_wood('Corteza', (0.075, 0.06, 0.07), (0.02, 0.016, 0.02), (1, 1, 3))
+    M['bark'] = mat_wood('Corteza', (0.075, 0.06, 0.07), (0.02, 0.016, 0.02), (5, 5, 0.5), bands='X')
     M['glass'] = mat_glass_dark('Ventana_Oscura')
     M['interior'] = mat_simple('Interior_Negro', (0.006, 0.005, 0.006), 1.0)
     return M
@@ -885,7 +922,9 @@ def terrain_height(x, y):
     r = math.hypot(dx, dy)
     ang = math.atan2(dy, dx)
     R = 7.2 + 1.6 * noise.noise(Vector((math.cos(ang) * 1.5, math.sin(ang) * 1.5, 3.3))) \
-        + 2.5 * max(0.0, math.cos(ang - 0.0)) * 0.9 - 0.8 * max(0.0, -math.sin(ang))
+        + 2.5 * max(0.0, math.cos(ang - 0.0)) * 0.9 - 0.8 * max(0.0, -math.sin(ang)) \
+        + 1.8 * max(0.0, -math.cos(ang)) \
+        + 4.0 * max(0.0, -math.sin(ang)) * max(0.0, -math.cos(ang) + 0.3)
     drop = smoothstep(R, R + 17.0, r)
     h = top - 36.0 * drop ** 0.8
     # terrazas / estratos irregulares en el acantilado
@@ -910,7 +949,7 @@ def terrain_height(x, y):
 def build_terrain(M):
     coll = collection("Penasco")
     random.seed(SEED + 2)
-    size, res = 60.0, 300
+    size, res = 60.0, 420
     bm = bmesh.new()
     verts = []
     off = Vector((0.0, 6.0))
@@ -938,7 +977,7 @@ def build_terrain(M):
     tex.distance_metric = 'DISTANCE'
     d = ob.modifiers.new("Desplazar_Roca", 'DISPLACE')
     d.texture = tex
-    d.strength = 0.35
+    d.strength = 0.55
     d.texture_coords = 'GLOBAL'
 
     # Rocas grandes angulosas incrustadas en el acantilado
@@ -968,10 +1007,21 @@ def build_terrain(M):
     for (x, y, s) in [(-5.6, -2.8, 0.9), (-4.2, -3.6, 0.6), (5.8, -3.6, 0.7), (6.5, -2.4, 0.5),
                       (-1.0, -3.2, 0.5), (2.9, -4.6, 0.8), (-6.5, 0.5, 0.7)]:
         add_boulder(rocks, M, Vector((x, y, terrain_height(x, y) - s * 0.35)), s)
-    rob = rocks.build("Rocas_Acantilado", coll, smooth=False)
-    d = rob.modifiers.new("Desplazar", 'DISPLACE')
+    rob = rocks.build("Rocas_Acantilado", coll, smooth=True)
+    # redondear las aristas (aspecto esculpido) y luego romper la superficie
+    sub = rob.modifiers.new("Suavizar", 'SUBSURF')
+    sub.levels = sub.render_levels = 1
+    clouds = bpy.data.textures.new("Roca_Nubes", 'CLOUDS')
+    clouds.noise_scale = 0.9
+    clouds.noise_depth = 4
+    d = rob.modifiers.new("Desplazar_Grande", 'DISPLACE')
+    d.texture = clouds
+    d.strength = 0.6
+    d.mid_level = 0.5
+    d.texture_coords = 'GLOBAL'
+    d = rob.modifiers.new("Desplazar_Grietas", 'DISPLACE')
     d.texture = tex
-    d.strength = 0.15
+    d.strength = 0.3
     d.texture_coords = 'GLOBAL'
     return ob
 
@@ -1020,28 +1070,33 @@ def build_tree(name, coll, M, base, height, radius, seed, lean=(0.0, 0.0), sprea
         dd = d.normalized()
         # posiciones fijas de las ramas hijas (pocas, como en la ilustración)
         nkids = 0 if level >= depth else rnd.choice((4, 5) if level == 0 else (2, 3) if level == 1 else (2, 2))
-        kid_t = sorted(rnd.uniform(0.38 if level == 0 else 0.25, 0.95) for _ in range(nkids))
+        kid_t = sorted(rnd.uniform(0.32 if level == 0 else 0.25, 0.8 if level == 0 else 0.95) for _ in range(nkids))
         children = []
-        bend = Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), 0)).normalized() * rnd.uniform(0.04, 0.09)
+        bend = Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), 0)).normalized() * (rnd.uniform(0.12, 0.18) if level == 0 else rnd.uniform(0.07, 0.13))
+        az0 = rnd.uniform(0, math.tau)
+        kid_i = 0
         twist = rnd.uniform(-1, 1)
         for k in range(1, steps + 1):
             t = k / steps
             jitter = Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), rnd.uniform(-0.5, 0.5))) * 0.07
             curl = Vector((-dd.y, dd.x, 0)) * twist * 0.12
             # las puntas tienden a curvarse hacia arriba
-            up = Z * (0.03 + 0.10 * t if level > 0 else 0.05)
-            dd = (dd + jitter + curl + bend * math.sin(t * math.pi * 1.3) + up).normalized()
+            up = Z * (0.01 + 0.06 * t if level > 0 else 0.05)
+            dd = (dd + jitter + curl + bend * math.sin(t * math.pi * 2.0) + up).normalized()
             cur = cur + dd * seg
-            rr = r * (1 - 0.72 * t ** 0.8)
+            rr = r * (1 - 0.93 * t ** 1.1)
             if level == 0 and t < 0.15:
                 rr = r * (1.7 - 4.7 * t)
             pts.append((cur.copy(), max(rr, 0.008)))
             while kid_t and t >= kid_t[0]:
                 kid_t.pop(0)
-                side = Vector((rnd.uniform(-1, 1), rnd.uniform(-0.6, 0.6), rnd.uniform(0.1, 0.6))).normalized()
-                nd = (dd * 0.35 + side * spread).normalized()
-                children.append((cur.copy(), nd, length * rnd.uniform(0.55, 0.85) * (1 - t * 0.3),
-                                 rr * rnd.uniform(0.7, 0.9), level + 1))
+                # ramas repartidas alrededor del tronco, abiertas casi en horizontal
+                az = az0 + kid_i * (math.tau / max(1, nkids)) + rnd.uniform(-0.5, 0.5)
+                kid_i += 1
+                side = Vector((math.cos(az), math.sin(az) * 0.6, rnd.uniform(-0.05, 0.4))).normalized()
+                nd = (dd * 0.3 + side * spread * 1.4).normalized()
+                children.append((cur.copy(), nd, length * rnd.uniform(0.7, 0.95) * (1 - t * 0.3),
+                                 rr * rnd.uniform(0.72, 0.88), level + 1))
         sp = cu.splines.new('NURBS')
         sp.points.add(len(pts) - 1)
         for i, (co, rr) in enumerate(pts):
@@ -1054,7 +1109,7 @@ def build_tree(name, coll, M, base, height, radius, seed, lean=(0.0, 0.0), sprea
         if level == depth:
             for _ in range(rnd.randint(1, 2)):
                 tw = Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), rnd.uniform(0.2, 1))).normalized()
-                children.append((cur.copy(), (dd + tw * 0.8).normalized(), length * 0.45, pts[-1][1] * 1.2, depth + 1))
+                children.append((cur.copy(), (dd + tw * 0.8).normalized(), length * 0.45, pts[-1][1] * 0.9, depth + 1))
         for c in children:
             if c[4] <= depth + 1:
                 grow(*c)
@@ -1079,17 +1134,34 @@ def build_tree(name, coll, M, base, height, radius, seed, lean=(0.0, 0.0), sprea
             sp.points[k].radius = r
         sp.order_u = 3
         sp.use_endpoint_u = True
-    return ob
+    # convertir a malla para poder deformar la corteza (nudos, torceduras)
+    dg = bpy.context.evaluated_depsgraph_get()
+    me = bpy.data.meshes.new_from_object(ob.evaluated_get(dg))
+    mob = bpy.data.objects.new(name, me)
+    coll.objects.link(mob)
+    bpy.data.objects.remove(ob, do_unlink=True)
+    bpy.data.curves.remove(cu)
+    mob.name = name
+    for p in me.polygons:
+        p.use_smooth = True
+    bark = bpy.data.textures.get("Corteza_Nudos") or bpy.data.textures.new("Corteza_Nudos", 'CLOUDS')
+    bark.noise_scale = 0.35
+    bark.noise_depth = 3
+    dm = mob.modifiers.new("Nudos", 'DISPLACE')
+    dm.texture = bark
+    dm.strength = 0.1
+    dm.texture_coords = 'GLOBAL'
+    return mob
 
 
 def build_trees(M):
     coll = collection("Arboles")
     trees = [
         # (nombre, base xy, altura tronco, radio, inclinación, apertura, profundidad)
-        ("Arbol_Izq_Fondo", (-6.6, 0.0), 6.0, 0.5, (-0.6, 0.0), 1.2, 3),
-        ("Arbol_Primer_Plano", (-3.5, -7.5), 10.5, 0.5, (0.06, -0.05), 1.2, 2),
-        ("Arbol_Derecha", (8.4, -1.4), 6.5, 0.5, (0.45, -0.05), 1.2, 3),
-        ("Arbol_Derecha_Lejos", (11.4, -0.6), 4.2, 0.3, (0.1, 0.0), 1.1, 3),
+        ("Arbol_Izq_Fondo", (-7.0, 0.4), 7.0, 0.6, (-0.3, 0.05), 0.85, 2),
+        ("Arbol_Primer_Plano", (-5.5, -8.0), 6.5, 0.5, (0.15, -0.1), 1.0, 2),
+        ("Arbol_Derecha", (8.4, -1.4), 7.5, 0.65, (-0.25, -0.05), 1.3, 2),
+        ("Arbol_Derecha_Lejos", (11.4, -0.6), 5.0, 0.38, (0.15, 0.0), 1.2, 2),
     ]
     for i, (n, (x, y), h, r, lean, spread, depth) in enumerate(trees):
         z = terrain_height(x, y)
@@ -1132,7 +1204,7 @@ def build_world():
     dot = nt.nodes.new('ShaderNodeVectorMath')
     dot.operation = 'DOT_PRODUCT'
     nt.links.new(tc.outputs['Generated'], dot.inputs[0])
-    dot.inputs[1].default_value = (0.94, -0.33, 0.25)
+    dot.inputs[1].default_value = (0.94, -0.33, -0.15)
     warp = _noise(nt, mp.outputs[0], 1.2, 3, 0.5, 0.3)
     side = nt.nodes.new('ShaderNodeMath')
     side.operation = 'MULTIPLY_ADD'
@@ -1143,11 +1215,11 @@ def build_world():
     sr.inputs['From Min'].default_value = -0.1
     sr.inputs['From Max'].default_value = 1.0
     nt.links.new(side.outputs[0], sr.inputs['Value'])
-    hue = _ramp(nt, sr.outputs[0], [(0.0, (0.12, 0.10, 0.135)), (0.35, (0.14, 0.13, 0.15)), (0.7, (0.14, 0.23, 0.18)), (1.0, (0.16, 0.30, 0.22))])
+    hue = _ramp(nt, sr.outputs[0], [(0.0, (0.12, 0.10, 0.135)), (0.25, (0.13, 0.125, 0.14)), (0.45, (0.12, 0.17, 0.15)), (0.7, (0.13, 0.25, 0.18)), (1.0, (0.16, 0.31, 0.22))])
     # nubes suaves y anchas
     n1 = _noise(nt, mp.outputs[0], 4.0, 8, 0.6, 0.12)
     n2 = _noise(nt, mp.outputs[0], 8.0, 6, 0.6, 0.0)
-    dark = _ramp(nt, n1.outputs['Fac'], [(0.32, (0.3, 0.27, 0.36)), (0.47, (0.75, 0.75, 0.78)), (0.6, (1.35, 1.4, 1.38)), (0.75, (2.0, 2.1, 2.05))])
+    dark = _ramp(nt, n1.outputs['Fac'], [(0.34, (0.22, 0.18, 0.28)), (0.48, (0.6, 0.58, 0.66)), (0.6, (1.3, 1.4, 1.35)), (0.74, (2.1, 2.3, 2.15))])
     col = _mix_rgb(nt, 1.0, hue, dark, 'MULTIPLY')
     wisps = _ramp(nt, n2.outputs['Fac'], [(0.5, (0, 0, 0)), (0.8, (0.05, 0.08, 0.065))])
     col = _mix_rgb(nt, 1.0, col, wisps, 'ADD')
@@ -1157,7 +1229,7 @@ def build_world():
     # para la iluminación, un tono uniforme suave (luz ambiental)
     amb = nt.nodes.new('ShaderNodeBackground')
     amb.inputs['Color'].default_value = (0.11, 0.12, 0.13, 1)
-    amb.inputs['Strength'].default_value = 0.75
+    amb.inputs['Strength'].default_value = 0.5
     lp = nt.nodes.new('ShaderNodeLightPath')
     mix = nt.nodes.new('ShaderNodeMixShader')
     nt.links.new(lp.outputs['Is Camera Ray'], mix.inputs[0])
@@ -1178,7 +1250,7 @@ def build_lights():
         coll.objects.link(ob)
         return ob
     # luz de luna fría desde arriba-izquierda (ilumina la fachada frontal)
-    sun("Luna_Principal", (50, 0, -25), 2.8, (0.82, 0.86, 0.85), 15)
+    sun("Luna_Principal", (50, 0, -25), 3.6, (0.82, 0.86, 0.85), 15)
     # contraluz verdoso desde atrás-derecha (bordes de los árboles y tejado)
     sun("Contraluz_Verde", (70, 0, 150), 1.2, (0.55, 0.85, 0.65), 10)
     # relleno morado desde abajo (rebote del cielo)
