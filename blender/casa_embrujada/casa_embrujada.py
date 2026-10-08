@@ -447,51 +447,163 @@ def plank_wall(mb, mat, origin, u, n, width, height, openings=(), plank_h=0.24,
                 p += L
 
 
-def window(mb, M, origin, u, n, u0, v0, w, h, broken=False, shutters=False, boarded=False):
-    """Ventana con marco, travesaños en cruz y vidrio oscuro."""
+# --- Aberturas estilo Tim Burton: arcos de medio punto, óculos redondos, todo algo torcido ---
+
+def opening_outline(kind, w, h, n=28):
+    """Contorno (x, y) de la abertura, con (0,0) en la esquina inferior izquierda.
+    'arch': rectángulo rematado en medio punto (radio w/2); 'round': elipse inscrita."""
+    pts = []
+    if kind == 'round':
+        for i in range(n):
+            a = -math.pi / 2 + math.tau * i / n
+            pts.append((w / 2 + math.cos(a) * w / 2, h / 2 + math.sin(a) * h / 2))
+    else:
+        r = w / 2
+        hs = max(0.0, h - r)
+        k = n // 2
+        pts.append((0.0, 0.0))
+        pts.append((w, 0.0))
+        pts.append((w, hs))
+        for i in range(1, k):
+            a = math.pi * i / k
+            pts.append((w / 2 + math.cos(a) * r, hs + math.sin(a) * r))
+        pts.append((0.0, hs))
+    return pts
+
+
+def _frame_to_world(o, u, n, u0, v0, w, h, tilt):
+    """Devuelve f(x, y, depth) -> punto del mundo; rota la abertura 'tilt' rad en su plano."""
+    cx, cy = w / 2, h / 2
+    ca, sa = math.cos(tilt), math.sin(tilt)
+    def f(x, y, depth=0.0):
+        dx, dy = x - cx, y - cy
+        rx, ry = dx * ca - dy * sa + cx, dx * sa + dy * ca + cy
+        return o + u * (u0 + rx) + Z * (v0 + ry) + n * depth
+    return f
+
+
+def _surround(mb, mat, f, pts, w, h, depth, pad=0.03):
+    """Tablero que tapa el hueco rectangular de los tablones alrededor de la forma curva."""
+    cx, cy = w / 2, h / 2
+    verts, faces = [], []
+    for (x, y) in pts:
+        dx, dy = x - cx, y - cy
+        L = math.hypot(dx, dy) or 1e-6
+        # rayo desde el centro hasta el borde del rectángulo (con margen)
+        tx = (w / 2 + pad) / abs(dx) if abs(dx) > 1e-6 else 1e9
+        ty = (h / 2 + pad) / abs(dy) if abs(dy) > 1e-6 else 1e9
+        t = min(tx, ty)
+        verts.append(f(x, y, depth))
+        verts.append(f(cx + dx * t, cy + dy * t, depth))
+    m = len(pts)
+    for i in range(m):
+        j = (i + 1) % m
+        faces.append((2 * i, 2 * i + 1, 2 * j + 1, 2 * j))
+    mb.add(verts, faces, mat)
+
+
+def _tube(mb, mat, f, pts, depth, width, closed=True, wobble=0.0):
+    """Marco grueso que sigue el contorno (cajas encadenadas)."""
+    m = len(pts)
+    rng = range(m) if closed else range(m - 1)
+    for i in rng:
+        a = Vector(f(*pts[i], depth))
+        b = Vector(f(*pts[(i + 1) % m], depth))
+        d = b - a
+        if d.length < 1e-5:
+            continue
+        du = d.normalized()
+        nn = (f(0, 0, 1.0) - f(0, 0, 0.0)).normalized()
+        vv = nn.cross(du).normalized()
+        mb.box((a + b) / 2 + vv * random.uniform(-wobble, wobble), (d.length + width * 0.6, width * 1.1, width),
+               mat, basis=(du, vv, nn))
+
+
+def window(mb, M, origin, u, n, u0, v0, w, h, broken=False, shutters=False, boarded=False, kind=None):
+    """Ventana estilo Burton: óculo redondo/ovalado o arco de medio punto, marco grueso
+    torcido y travesaños desparejos. El hueco rectangular de los tablones se tapa con un tablero."""
     o = Vector(origin)
-    c = o + u * (u0 + w / 2) + Z * (v0 + h / 2)
-    ft = 0.08
-    d = 0.09
-    # vidrio / interior hundido
-    mb.box(c + n * 0.01, (w, 0.02, h), M['glass'] if not broken else M['interior'], basis=(u, Z, n))
-    # marco
-    mb.box(c + Z * (h / 2 + ft / 2) + n * d / 2, (w + 2 * ft + 0.06, d, ft), M['wood_dark'], basis=(u, Z, n))
-    mb.box(c - Z * (h / 2 + ft / 2) + n * d / 2, (w + 2 * ft + 0.12, d + 0.04, ft), M['wood_dark'], basis=(u, Z, n))
-    for s in (-1, 1):
-        mb.box(c + u * s * (w / 2 + ft / 2) + n * d / 2, (ft, d, h + 2 * ft), M['wood_dark'], basis=(u, Z, n))
+    if kind is None:
+        kind = 'round' if h / w < 1.45 else 'arch'
+    tilt = random.uniform(-0.16, 0.16)
+    f = _frame_to_world(o, u, n, u0, v0, w, h, tilt)
+    pts = opening_outline(kind, w, h)
+    _surround(mb, M['wood_dark'], f, pts, w, h, 0.035)
+    # vidrio (abanico desde el centro)
+    cxy = (w / 2, h / 2)
+    verts = [f(*cxy, 0.02)] + [f(x, y, 0.02) for (x, y) in pts]
+    faces = [(0, i + 1, (i + 1) % len(pts) + 1) for i in range(len(pts))]
+    mb.add(verts, faces, M['glass'] if not broken else M['interior'])
+    ft = 0.15 if kind == 'round' else 0.13
+    _tube(mb, M['wood_grey'], f, pts, 0.09, ft, wobble=0.012)
+    if kind == 'arch':
+        # alféizar saliente
+        mb.box(f(w / 2, -0.04, 0.1), (w + 0.3, 0.16, 0.07), M['wood_dark'], rot=(0, tilt, 0), basis=(u, Z, n))
     if boarded:
         for i in range(3):
-            mb.box(c + Z * (h * (i - 1) * 0.3) + n * (d + 0.02),
-                   (w * 1.15, 0.035, 0.13), M['wood_grey'],
-                   rot=(0, random.uniform(-0.35, 0.35), 0), basis=(u, Z, n))
+            mb.box(f(w / 2, h * (0.2 + 0.3 * i), 0.14), (w * 1.2, 0.035, 0.13), M['wood_grey'],
+                   rot=(0, random.uniform(-0.4, 0.4), 0), basis=(u, Z, n))
         return
-    # parteluz y travesaño (algunos rotos)
-    tilt = random.uniform(-0.25, 0.25) if broken else 0.0
-    mb.box(c + n * 0.03, (0.04, 0.04, h), M['wood_dark'], rot=(0, tilt, 0), basis=(u, Z, n))
-    mb.box(c + n * 0.03 + Z * h * 0.08, (w, 0.04, 0.04), M['wood_dark'], rot=(0, tilt * 0.5, 0), basis=(u, Z, n))
+    rk = random.uniform(-0.12, 0.12) if broken else 0.0
+    if kind == 'round':
+        # cruz desplazada del centro
+        mb.box(f(w / 2, h / 2, 0.05), (0.04, 0.035, h * 0.98), M['wood_dark'], rot=(0, tilt + rk, 0), basis=(u, Z, n))
+        mb.box(f(w / 2, h * 0.55, 0.05), (w * 0.98, 0.035, 0.04), M['wood_dark'], rot=(0, tilt + rk, 0), basis=(u, Z, n))
+    else:
+        r = w / 2
+        hs = max(0.0, h - r)
+        mb.box(f(w / 2, h / 2, 0.05), (0.04, 0.035, h), M['wood_dark'], rot=(0, tilt + rk, 0), basis=(u, Z, n))
+        mb.box(f(w / 2, hs, 0.05), (w, 0.035, 0.04), M['wood_dark'], rot=(0, tilt, 0), basis=(u, Z, n))
+        # rayos del medio punto (abanico)
+        for a in (math.pi * 0.25, math.pi * 0.75):
+            p0 = Vector((w / 2, hs))
+            p1 = p0 + Vector((math.cos(a), math.sin(a))) * r
+            mid = (p0 + p1) / 2
+            mb.box(f(mid.x, mid.y, 0.05), (r, 0.03, 0.03), M['wood_dark'], rot=(0, -(a + tilt), 0), basis=(u, Z, n))
     if shutters:
-        for s in (-1, 1):
-            mb.box(c + u * s * (w / 2 + ft + w * 0.25) + n * (d + 0.02),
-                   (w * 0.5, 0.035, h), M['wood'], rot=(0, random.uniform(-0.05, 0.05), 0), basis=(u, Z, n))
+        for sgn in (-1, 1):
+            mb.box(f(w / 2 + sgn * (w * 0.75 + 0.1), h / 2, 0.12), (w * 0.5, 0.035, h * 0.9), M['wood'],
+                   rot=(0, random.uniform(-0.08, 0.08), 0), basis=(u, Z, n))
 
 
 def door(mb, M, origin, u, n, u0, w, h, v0=0.0, ajar=False):
+    """Puerta de medio punto, de tablones verticales recortados por el arco, con mirilla redonda."""
     o = Vector(origin)
-    c = o + u * (u0 + w / 2) + Z * (v0 + h / 2)
-    mb.box(c + n * 0.005, (w, 0.02, h), M['interior'], basis=(u, Z, n))
+    tilt = random.uniform(-0.07, 0.07)
+    f = _frame_to_world(o, u, n, u0, v0, w, h, tilt)
+    pts = opening_outline('arch', w, h)
+    _surround(mb, M['wood_dark'], f, pts, w, h, 0.03)
+    verts = [f(w / 2, h / 2, 0.006)] + [f(x, y, 0.006) for (x, y) in pts]
+    mb.add(verts, [(0, i + 1, (i + 1) % len(pts) + 1) for i in range(len(pts))], M['interior'])
+    # hoja: tablones verticales con el remate curvo (en coordenadas locales de la hoja)
+    r = w / 2
+    hs = max(0.0, h - r)
     sub = MeshBuilder()
-    plank_wall(sub, M['wood'], (0, 0, 0), X, -Y, w - 0.04, h - 0.03, vertical=True, thickness=0.05)
+    x = 0.02
+    while x < w - 0.03:
+        pw = min(random.uniform(0.13, 0.18), w - 0.02 - x)
+        xc = x + pw / 2
+        top = hs + math.sqrt(max(0.0, r * r - (xc - r) ** 2)) - 0.03
+        sub.box((xc, 0.0, top / 2), (pw - 0.012, 0.05, top), M['wood'])
+        x += pw
+    for zz in (0.35, h * 0.55):           # travesaños
+        sub.box((w / 2, -0.035, zz), (w - 0.1, 0.03, 0.1), M['wood_dark'])
+    # mirilla redonda
+    for i in range(12):
+        a0, a1 = math.tau * i / 12, math.tau * (i + 1) / 12
+        rr = 0.13
+        cxz = (w / 2, hs + 0.05)
+        pa = Vector((cxz[0] + math.cos(a0) * rr, cxz[1] + math.sin(a0) * rr))
+        pb = Vector((cxz[0] + math.cos(a1) * rr, cxz[1] + math.sin(a1) * rr))
+        mid = (pa + pb) / 2
+        sub.box((mid.x, -0.04, mid.y), ((pb - pa).length + 0.03, 0.04, 0.05), M['wood_dark'],
+                rot=(0, -(a0 + a1) / 2 - math.pi / 2, 0))
     rotz = random.uniform(-0.5, -0.2) if ajar else 0.0
-    rmat = Matrix((u, n, Z)).transposed() @ Matrix.Rotation(rotz, 3, 'Z')
-    # bisagra en el borde izquierdo
-    hinge = o + u * u0 + Z * v0 + n * 0.03
+    rmat = Matrix((u, n, Z)).transposed() @ Matrix.Rotation(rotz, 3, 'Z') @ Matrix.Rotation(-tilt, 3, 'Y')
+    hinge = f(0, 0, 0.03)
     verts = [hinge + rmat @ Vector((p.x, -p.y, p.z)) for p in sub.verts]
     mb.add(verts, sub.faces, M['wood'])
-    ft = 0.09
-    mb.box(c + Z * (h / 2 + ft / 2) + n * 0.05, (w + 2 * ft, 0.1, ft), M['wood_dark'], basis=(u, Z, n))
-    for s in (-1, 1):
-        mb.box(c + u * s * (w / 2 + ft / 2) + n * 0.05, (ft, 0.1, h + ft), M['wood_dark'], basis=(u, Z, n))
+    _tube(mb, M['wood_grey'], f, pts[1:] + pts[:1], 0.07, 0.15, closed=False, wobble=0.015)
 
 
 def railing(mb, M, p0, p1, height=1.0, spacing=0.17, broken=0.12, post_every=1.6, top=True):
